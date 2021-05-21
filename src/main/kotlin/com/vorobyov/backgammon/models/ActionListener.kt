@@ -17,5 +17,8 @@ interface ActionListener {
     fun onMoveFromBar(player: Checker.Colors)
     fun onAvailablePointsForBarReceived(player: Checker.Colors, points: List<Int>)
     fun onCheckerMovedFromBar(player: Checker.Colors, point: Int)
+    fun onCheckerBearingOff(player: Checker.Colors, point: Int)
+
+    fun onWin(player: Checker.Colors)
 
 }

@@ -15,6 +15,8 @@ import javafx.scene.shape.Circle
 import com.vorobyov.backgammon.view.SelectablePolygon
 import com.vorobyov.backgammon.view.polygon
 import javafx.scene.control.Alert
+import javafx.scene.control.Button
+import javafx.scene.control.ButtonType
 import javafx.scene.input.MouseEvent
 import javafx.scene.layout.StackPane
 import tornadofx.*
@@ -59,6 +61,12 @@ class GameView : View("Короткие нарды"), ActionListener, IPlayers {
 
     private lateinit var blackBarChecker: StackPane
     private lateinit var blackBarCheckerCount: Label
+
+    private lateinit var firstDie: Label
+    private lateinit var secondDie: Label
+
+    private lateinit var dieButton: Button
+
     private var blacksInBar = 0
 
     override val root = vbox {
@@ -189,6 +197,33 @@ class GameView : View("Короткие нарды"), ActionListener, IPlayers {
                 }
             }
         }
+
+        hbox {
+            alignment = Pos.BASELINE_CENTER
+            style {
+                padding = box(5.0.px)
+                fontSize = 16.pt
+            }
+            firstDie = label {
+                style {
+                    padding = box(5.0.px)
+                }
+            }
+            secondDie = label {
+                style {
+                    padding = box(5.0.px)
+                }
+            }
+        }
+
+        hbox {
+            alignment = Pos.BASELINE_CENTER
+
+            style {
+                padding = box(5.0.px)
+            }
+            dieButton = button("Бросить кубик") {  }
+        }
     }
 
 
@@ -208,11 +243,16 @@ class GameView : View("Короткие нарды"), ActionListener, IPlayers {
     }
 
     override fun onInitialDieRolled(player: Checker.Colors, amount: Int) {
-        println("Player ${player} have rolled ${amount} in start")
+        when (player) {
+            Checker.Colors.WHITE -> firstDie.text = amount.toString()
+            Checker.Colors.BLACK -> secondDie.text = amount.toString()
+        }
     }
 
     override fun onDiesRolled(player: Checker.Colors, dies: Pair<Int, Int>) {
-        println("Player ${player} have rolled ${dies.first} and ${dies.second}")
+        firstDie.text = dies.first.toString()
+        secondDie.text = dies.second.toString()
+
     }
 
     override fun onInviteSelectPoint(player: Checker.Colors) {
@@ -264,6 +304,7 @@ class GameView : View("Короткие нарды"), ActionListener, IPlayers {
         }
     }
 
+
     override fun onCheckerMovedFromBar(player: Checker.Colors, point: Int) {
         when (player) {
             Checker.Colors.WHITE -> {
@@ -279,9 +320,21 @@ class GameView : View("Короткие нарды"), ActionListener, IPlayers {
                 val was = blackBarCheckerCount.text.toInt()
                 blackBarCheckerCount.text = if (was == 1) "" else (was - 1).toString()
                 if (was == 1) {
-                    whiteBarChecker.getChildList()?.clear()
+                    blackBarChecker.getChildList()?.clear()
                 }
                 pointsPolygons[point]?.addChecker(Checker(Checker.Colors.BLACK))
+            }
+        }
+    }
+
+    override fun onCheckerBearingOff(player: Checker.Colors, point: Int) {
+        pointsPolygons[point]?.popChecker()
+    }
+
+    override fun onWin(player: Checker.Colors) {
+        alert(Alert.AlertType.INFORMATION, "Поздравляем!", "Игрок ${player(player)} победил!", ButtonType.OK, owner = currentWindow) {
+            if (result == ButtonType.OK) {
+                backgammon.setupBoard()
             }
         }
     }
@@ -297,18 +350,16 @@ class GameView : View("Короткие нарды"), ActionListener, IPlayers {
     }
 
     override fun askInitialRollDie(player: Checker.Colors) {
-        println("Action to roll die")
-
         stateLabel.text = "Игрок ${player(player)}. Стартовый бросок кубика"
 
-        backgammon.onInitialRolledDie(player)
+        dieButton.setOnMouseClicked { dieButton.onMouseClicked = null; backgammon.onInitialRolledDie(player)  }
+
     }
 
     override fun askRollDies(player: Checker.Colors) {
-        println("Action to roll die")
         stateLabel.text = "Игрок ${player(player)}. Бросок кубиков"
 
-        backgammon.onRolledDies(player)
+        dieButton.setOnMouseClicked { dieButton.onMouseClicked = null; backgammon.onRolledDies(player) }
     }
 
     override fun onInviteSelectedPointClick(player: Checker.Colors) {
@@ -325,6 +376,23 @@ class GameView : View("Короткие нарды"), ActionListener, IPlayers {
         }
         else {
             backgammon.onSelectedPointClicked(pos)
+        }
+    }
+
+    override fun askBearingOff(player: Checker.Colors, point: Int) {
+        alert(
+            Alert.AlertType.CONFIRMATION,
+            "Выбрасывание с поля",
+            "Выбросить шашку ${point + 1} с поля?",
+            ButtonType.YES, ButtonType.NO,
+            owner = currentWindow
+        ) { buttonType ->
+            if (result == ButtonType.YES) {
+                backgammon.onBearingOffAccepted(player, point)
+            } else {
+                backgammon.onBearingOffReject(player, point)
+//                close()
+            }
         }
     }
 

@@ -4,15 +4,14 @@ import com.vorobyov.backgammon.models.Backgammon.States.Companion.next
 import com.vorobyov.backgammon.models.Checker.Colors.BLACK
 import com.vorobyov.backgammon.models.Checker.Colors.WHITE
 import kotlin.math.abs
-import kotlin.reflect.jvm.internal.impl.util.Check
 
 class Backgammon(val players: IPlayers) {
 
     enum class States {
         SETUP,
         INITIAL_ROLL_DIE_FIRST, INITIAL_ROLL_DIE_SECOND,
-        ROLL_DIE_FIRST, CHECK_BAR_FIRST, MOVE_FROM_BAR_FIRST, CHECK_AVAILABLE_MOVES_FIRST, SELECT_POINT_FIRST, MOVE_FIRST, MOVE_BY_ONE_FIRST, MOVE_BY_TWO_FIRST, MOVE_BY_TOGETHER_FIRST,
-        ROLL_DIE_SECOND, CHECK_BAR_SECOND, MOVE_FROM_BAR_SECOND, CHECK_AVAILABLE_MOVES_SECOND, SELECT_POINT_SECOND, MOVE_SECOND, MOVE_BY_ONE_SECOND, MOVE_BY_TWO_SECOND, MOVE_BY_TOGETHER_SECOND;
+        ROLL_DIE_FIRST, CHECK_BAR_FIRST, MOVE_FROM_BAR_FIRST, CHECK_AVAILABLE_MOVES_FIRST, CHECK_BEARING_OFF_FIRST, SELECT_POINT_FIRST, MOVE_FIRST,
+        ROLL_DIE_SECOND, CHECK_BAR_SECOND, MOVE_FROM_BAR_SECOND, CHECK_AVAILABLE_MOVES_SECOND, CHECK_BEARING_OFF_SECOND, SELECT_POINT_SECOND, MOVE_SECOND;
 
         companion object {
             fun States.next(): States =
@@ -28,11 +27,13 @@ class Backgammon(val players: IPlayers) {
 
     private val bar = mutableListOf<Checker>()
 
+    private var pt = (0..5).random()
 
     var listener: ActionListener? = null
 
+    private var movesCount = 0
+
     fun nextAction() {
-        println("Action: ${state}")
         when (state) {
             States.SETUP -> {
                 setupBoard()
@@ -64,6 +65,10 @@ class Backgammon(val players: IPlayers) {
                 listener?.onInviteSelectPoint(WHITE)
             }
 
+//            States.CHECK_BEARING_OFF_FIRST -> {
+//                checkBearingOff(WHITE)
+//            }
+
 //            States.MOVE_FIRST -> {
 //            }
 
@@ -82,6 +87,10 @@ class Backgammon(val players: IPlayers) {
             States.SELECT_POINT_SECOND -> {
                 listener?.onInviteSelectPoint(BLACK)
             }
+
+//            States.CHECK_BEARING_OFF_SECOND -> {
+//                checkBearingOff(BLACK)
+//            }
 
 //            States.MOVE_SECOND -> {
 //            }
@@ -185,16 +194,53 @@ class Backgammon(val players: IPlayers) {
         if (player == WHITE && state != States.ROLL_DIE_FIRST || player == BLACK && state != States.ROLL_DIE_SECOND)
             return
 
+        // set count of moves. 4 for equal dias and 2 for other
         listener?.onDiesRolled(player, dies[0].roll() to dies[1].roll())
+        movesCount = if (dies[0].amount == dies[1].amount) 4 else 2
         state = state.next()
         nextAction()
     }
 
 
+    fun Checker.Colors.mayBeBearingOff(point: Int): Boolean {
+
+        fun Checker.Colors.hasCheckersOnThatOrGreater(point: Int): Boolean {
+            when (this) {
+                WHITE -> for (i in point..5) if (points[i].hasChecker(this)) return true
+                BLACK -> for (i in 23 downTo 18) if (points[i].hasChecker(this)) return true
+            }
+            return false
+        }
+
+
+        fun diesGreaterThan(value: Int): Boolean {
+            return dies[0].amount > value && dies[1].amount > value
+        }
+
+        return diesGreaterThan(point) && !hasCheckersOnThatOrGreater(point) ||
+        !points[point].isFree() && (dies[0].amount - 1 == points[point].boardPosition || dies[1].amount - 1 == points[point].boardPosition) && this == points[point].checkersColor
+    }
+
     var selectedPoint: Point? = null
     fun onPointSelected(point: Int) {
 
-        val player = if (state == States.SELECT_POINT_FIRST || state == States.MOVE_FIRST) WHITE else BLACK
+        val player = if (state == States.SELECT_POINT_FIRST || state == States.MOVE_FIRST || state == States.CHECK_BEARING_OFF_FIRST) WHITE else BLACK
+
+        // bearing off request
+        if ((state == States.CHECK_BEARING_OFF_FIRST || state == States.CHECK_BEARING_OFF_SECOND) && !points[point].isFree())  {
+            if (player.mayBeBearingOff(point) && player.allCheckersInHome()
+            ) {
+                players.askBearingOff(player, point)
+
+                return
+
+            } else {
+                state = when (player) {
+                    WHITE -> States.SELECT_POINT_FIRST
+                    BLACK -> States.SELECT_POINT_SECOND
+                }
+            }
+        }
 
         // перевыделить треугольники
         if ((state == States.MOVE_FIRST || state == States.MOVE_SECOND) && selectedPoint != null &&
@@ -212,7 +258,7 @@ class Backgammon(val players: IPlayers) {
 
                 listener?.clearPointsHighlighting()
                 selectedPoint = null
-                state = if (player == WHITE) States.SELECT_POINT_FIRST else States.SELECT_POINT_SECOND
+                state = if (player == WHITE) States.CHECK_BEARING_OFF_FIRST else States.CHECK_BEARING_OFF_SECOND
             }
         }
 
@@ -228,15 +274,15 @@ class Backgammon(val players: IPlayers) {
 
             val possibleMoves = player.possibleMovesFor(point)
 
-
             if (possibleMoves.isNotEmpty()) {
+
                 listener?.onAvailablePointsReceived(player, possibleMoves, point)
 
                 listener?.onInviteSelectedPointClick(player)
                 state = state.next()
 
                 nextAction()
-            } else {
+            } else if (!player.areTherePossibleMoves()) {
                 listener?.onSkipMove(player)
 
                 state = when (player) {
@@ -245,44 +291,63 @@ class Backgammon(val players: IPlayers) {
                 }
 
                 nextAction()
+
             }
 
         }
     }
 
-//    private fun Checker.Colors.possibleStepsFor(point: Int): List<Int> {
-//        val possibleSteps = mutableListOf<Int>()
-//        for (die in dies) {
-//            if (die.hidden)
-//                continue
-//
-//            if (isStepPossible(point, die.amount))
-//                possibleSteps.add(die.amount)
-//        }
-//
-//        val sum = dies.sumOf { die -> die.amount }
-//        if (possibleSteps.isNotEmpty() && isStepPossible(point, sum))
-//            possibleSteps.add(sum)
-//
-//        return possibleSteps
-//    }
 
     private fun Checker.Colors.possibleMovesFor(point: Int): List<Int> {
         val possibleMoves = mutableListOf<Int>()
-        for (die in dies) {
-            if (die.hidden)
-                continue
 
-            if (isStepPossible(point, die.amount))
-                possibleMoves.add(posBySteps(point, die.amount))
+        if (!dies[0].hidden && !dies[1].hidden &&
+            dies[0].amount == dies[1].amount
+        ) {
+            for (i in 1..movesCount) {
+                val steps = dies[0].amount * i
+                // каждый более дальний ход можно сделать, если можно ходить на более ближние позиции
+                if (!isStepPossible(point, steps))
+                    break
+
+                possibleMoves.add(posBySteps(point, steps))
+            }
+        } else {
+
+            for (die in dies) {
+                if (die.hidden)
+                    continue
+
+                if (isStepPossible(point, die.amount))
+                    possibleMoves.add(posBySteps(point, die.amount))
+            }
+
+            val sumStep = dies.sumOf { die -> die.amount }
+            // каждый более дальний ход можно сделать, если можно ходить на более ближние позиции
+            if (possibleMoves.isNotEmpty() && isStepPossible(point, sumStep))
+                possibleMoves.add(posBySteps(point, sumStep))
         }
 
-        val sumStep = dies.sumOf { die -> die.amount }
-
-        if (possibleMoves.isNotEmpty() && isStepPossible(point, sumStep))
-            possibleMoves.add(posBySteps(point, sumStep))
-
         return possibleMoves
+    }
+
+    fun primitiveSteps(stepsSum: Int): List<Int> {
+        val primitiveSteps = mutableListOf<Int>()
+        var steps = stepsSum
+
+        if (stepsSum !in dies.map { it.amount }) {
+            while (steps > 0) {
+                for (die in dies) {
+                    if (steps >= die.amount) {
+                        steps -= die.amount
+                        primitiveSteps.add(die.amount)
+                    }
+                }
+            }
+        } else {
+            primitiveSteps.add(stepsSum)
+        }
+        return primitiveSteps
     }
 
     /*
@@ -299,25 +364,23 @@ class Backgammon(val players: IPlayers) {
     fun onSelectedPointClicked(point: Int) {
         fun firstMove(): Boolean = (dies.filter { it.amount != 0 }.size == 2)
 
-//        fun dieAmountBy
-
-
+        println("State: ${state}")
         // move from bar
         if (state == States.MOVE_FROM_BAR_FIRST || state == States.MOVE_FROM_BAR_SECOND) {
             val player = if (state == States.MOVE_FROM_BAR_FIRST) WHITE else BLACK
-
-            println("On bar!!")
 
             val possibleMoves = player.possibleMovesForBar()
 
             if (point !in possibleMoves)
                 return
 
+
             if (points[point].isBlotFor(player)) {
                 bar.add(points[point].popFirst())
                 listener?.onBarPut(point, bar.last().color)
             }
 
+            movesCount -= 1
             moveCheckerFromBar(points[point], player)
 
             listener?.clearPointsHighlighting()
@@ -344,7 +407,6 @@ class Backgammon(val players: IPlayers) {
 
         // just move
 
-
         require(selectedPoint != null)
 
         val player = when (state) {
@@ -358,43 +420,52 @@ class Backgammon(val players: IPlayers) {
         if (point !in possibleMoves)
             return
 
-        val isTogetherMove = firstMove() && player.steps(selectedPoint!!.pos, point) == dies.sumOf { die -> die.amount }
+
+        val primitiveSteps = primitiveSteps(player.steps(selectedPoint!!.pos, point))
+
 
         if (points[point].isBlotFor(player)) {
             bar.add(points[point].popFirst())
             listener?.onBarPut(point, bar.last().color)
         }
 
+
         selectedPoint!!.moveChecker(points[point])
+        movesCount -= primitiveSteps.size
         listener?.clearPointsHighlighting()
 
-        if (isTogetherMove) {
-            when (player) {
-                WHITE -> state = States.ROLL_DIE_SECOND
-                BLACK -> state = States.ROLL_DIE_FIRST
+
+        when (movesCount) {
+            3, 2 -> {
+                when (player) {
+                    WHITE -> state = States.CHECK_AVAILABLE_MOVES_FIRST
+                    BLACK -> state = States.CHECK_AVAILABLE_MOVES_SECOND
+                }
             }
+            1 -> {
 
-        } else {
-
-            if (firstMove()) {
-                val steps = player.steps(selectedPoint!!.pos, point)
-                dies.find { it.amount == steps }!!.hide()
+                for (step in primitiveSteps.toSet()) {
+                    dies.find { it.amount == step }?.hide()
+                }
 
                 when (player) {
                     WHITE -> state = States.CHECK_AVAILABLE_MOVES_FIRST
                     BLACK -> state = States.CHECK_AVAILABLE_MOVES_SECOND
                 }
-            } else {
+            }
+            0 -> {
+                for (step in primitiveSteps.toSet()) {
+                    dies.find { it.amount == step }?.hide()
+                }
+
                 when (player) {
                     WHITE -> state = States.ROLL_DIE_SECOND
                     BLACK -> state = States.ROLL_DIE_FIRST
                 }
             }
-
-            selectedPoint = null
-
         }
 
+        selectedPoint = null
 
         nextAction()
     }
@@ -420,8 +491,8 @@ class Backgammon(val players: IPlayers) {
         listener?.clearPointsHighlighting()
         selectedPoint = null
         when (state) {
-            States.MOVE_FIRST -> state = States.SELECT_POINT_FIRST
-            States.MOVE_SECOND -> state = States.SELECT_POINT_SECOND
+            States.MOVE_FIRST -> state = States.CHECK_BEARING_OFF_FIRST
+            States.MOVE_SECOND -> state = States.CHECK_BEARING_OFF_SECOND
         }
 
         nextAction()
@@ -452,7 +523,7 @@ class Backgammon(val players: IPlayers) {
     }
 
     private fun checkBar(whose: Checker.Colors) {
-        if (bar.isEmpty()) {
+        if (bar.count { it.color == whose } == 0) {
             state = when (whose) {
                 WHITE -> States.CHECK_AVAILABLE_MOVES_FIRST
                 BLACK -> States.CHECK_AVAILABLE_MOVES_SECOND
@@ -483,6 +554,42 @@ class Backgammon(val players: IPlayers) {
         }
     }
 
+
+    fun onBearingOffAccepted(player: Checker.Colors, point: Int) {
+
+        listener?.onCheckerBearingOff(player, point)
+
+        dies.find { it.amount - 1 == points[point].boardPosition }?.hide()
+        points[point].popChecker()
+        movesCount--
+
+        if (movesCount > 0) {
+            state = when (player) {
+                WHITE -> States.CHECK_BEARING_OFF_FIRST
+                BLACK -> States.CHECK_BEARING_OFF_SECOND
+            }
+        } else {
+            state = when (player) {
+                WHITE -> States.ROLL_DIE_SECOND
+                BLACK -> States.ROLL_DIE_FIRST
+            }
+            nextAction()
+        }
+
+        if (!player.hasCheckers())
+            listener?.onWin(player)
+
+    }
+
+    fun onBearingOffReject(player: Checker.Colors, point: Int) {
+        state = when (points[point].checkersColor) {
+            WHITE -> States.SELECT_POINT_FIRST
+            BLACK -> States.SELECT_POINT_SECOND
+        }
+
+        onPointSelected(point)
+    }
+
     private fun Checker.Colors.allCheckersInHome() : Boolean {
         for (point in points) {
             if (!point.allInHome(this))
@@ -496,13 +603,6 @@ class Backgammon(val players: IPlayers) {
         return when (this) {
             WHITE -> points[(fromPoint - steps + 24) % 24].isFreeFor(this)
             BLACK -> points[(fromPoint + steps) % 24].isFreeFor(this)
-        }
-    }
-
-    private fun Checker.Colors.isMovePossible(toPoint: Int): Boolean {
-        return when (this) {
-            WHITE -> points[toPoint].isFreeFor(this)
-            BLACK -> points[toPoint].isFreeFor(this)
         }
     }
 
@@ -530,6 +630,25 @@ class Backgammon(val players: IPlayers) {
         points[point].addChecker(this)
 
         listener?.onCheckerAdded(point, this, points[point].checkersCount)
+    }
+
+    private fun Checker.Colors.areTherePossibleMoves(): Boolean {
+        for (point in points) {
+            if (point.isFree() || point.checkersColor != this)
+                continue
+
+            if (possibleMovesFor(point.pos).isNotEmpty())
+                return true;
+        }
+        return false
+    }
+
+    private fun Checker.Colors.hasCheckers(): Boolean {
+        for (point in points)
+            if (point.hasChecker(this))
+                return true
+
+        return false
     }
 
 

@@ -41,12 +41,34 @@ class Point(val pos: Int) {
     val checkersColor: Checker.Colors
     get() = checkers.last().color
 
-    fun allInHome(whoseHome: Checker.Colors): Boolean {
-        when (whoseHome) {
-            Checker.Colors.WHITE -> if (pos > 5) return false
-            Checker.Colors.BLACK -> if (pos < 23) return false
+    val boardPosition: Int
+    get() = when (checkersColor) {
+        Checker.Colors.WHITE -> pos
+        Checker.Colors.BLACK -> 4 - pos
+    }
+
+    fun isHome(color: Checker.Colors): Boolean = when (color) {
+        Checker.Colors.WHITE -> pos in 0..5
+        Checker.Colors.BLACK -> pos in 18..23
+    }
+
+
+    fun hasChecker(color: Checker.Colors): Boolean {
+        for (checker in checkers) {
+            if (checker.color == color)
+                return true
         }
-        
+        return false
+    }
+
+
+    fun allInHome(whoseHome: Checker.Colors): Boolean {
+        if (!isHome(whoseHome)) {
+            for (checker in checkers) {
+                if (checker.color == whoseHome)
+                    return false
+            }
+        }
         return true
     }
 
@@ -66,5 +88,8 @@ class Point(val pos: Int) {
     fun isBlotFor(color: Checker.Colors): Boolean = checkers.size == 1 && checkers.first().color != color
 
 
+    override fun toString(): String {
+        return "Point {pos=${pos}}"
+    }
 }
 

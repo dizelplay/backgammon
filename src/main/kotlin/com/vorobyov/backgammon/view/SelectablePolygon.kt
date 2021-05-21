@@ -80,6 +80,8 @@ class SelectablePolygon : Polygon {
             if (checker.color == Checker.Colors.WHITE) GameView.WHITE_C else GameView.BLACK_C
         )
 
+        checkerImg.isMouseTransparent = true
+
         checkerImg.strokeWidth = 2.0
         checkerImg.stroke = Color.BLACK
 
